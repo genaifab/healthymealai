@@ -12,6 +12,12 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize session state
+if 'stage' not in st.session_state:
+    st.session_state.stage = 'onboarding'
+if 'preferences' not in st.session_state:
+    st.session_state.preferences = {}
+
 # Title in main area
 st.title("🥗 Healthy Meals AI")
 
@@ -52,33 +58,61 @@ with st.sidebar:
     st.divider()
     
     # Generate button
-    generate_button = st.button(
+    if st.button(
         "🚀 Generate My Weekly Plan",
         type="primary",
         use_container_width=True
-    )
+    ):
+        # Capture preferences and transition to plan view
+        st.session_state.preferences = {
+            'user_profile': user_profile,
+            'excluded_foods': excluded_foods,
+            'meals_per_day': meals_per_day
+        }
+        st.session_state.stage = 'plan_view'
+        st.rerun()
 
-# Main content area
-# Welcome message when no plan is generated yet
-st.markdown("## Welcome to Your Personal Meal Planning Assistant!")
+# Main content area based on current stage
+if st.session_state.stage == 'onboarding':
+    # Welcome message when no plan is generated yet
+    st.markdown("## Welcome to Your Personal Meal Planning Assistant!")
 
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.markdown("""
-    ### 🎯 Get Started in 3 Simple Steps:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        ### 🎯 Get Started in 3 Simple Steps:
+        
+        1. **Set Your Preferences** - Use the sidebar to tell us about your dietary needs
+        2. **Click Generate** - Our AI will create a personalized weekly meal plan
+        3. **Get Your Grocery List** - Everything you need for the week, organized by category
+        
+        Your meal plan will feature:
+        - ✨ Wholesome, non-processed ingredients
+        - ⏱️ Recipes that respect your time constraints
+        - 🥗 Meals tailored to your dietary preferences
+        - 📝 Complete recipes with step-by-step instructions
+        
+        **👈 Start by setting your preferences in the sidebar!**
+        """)
+
+elif st.session_state.stage == 'plan_view':
+    # Plan view placeholder (will be implemented in Phase 5)
+    st.markdown("## Your Weekly Meal Plan")
     
-    1. **Set Your Preferences** - Use the sidebar to tell us about your dietary needs
-    2. **Click Generate** - Our AI will create a personalized weekly meal plan
-    3. **Get Your Grocery List** - Everything you need for the week, organized by category
+    # Display captured preferences for debugging
+    st.success("✅ Preferences captured successfully!")
     
-    Your meal plan will feature:
-    - ✨ Wholesome, non-processed ingredients
-    - ⏱️ Recipes that respect your time constraints
-    - 🥗 Meals tailored to your dietary preferences
-    - 📝 Complete recipes with step-by-step instructions
+    with st.expander("📋 Your Preferences (Debug View)", expanded=True):
+        st.write("**User Profile:**", st.session_state.preferences.get('user_profile'))
+        st.write("**Excluded Foods:**", st.session_state.preferences.get('excluded_foods') or "None")
+        st.write("**Meals per Day:**", st.session_state.preferences.get('meals_per_day'))
     
-    **👈 Start by setting your preferences in the sidebar!**
-    """)
+    st.info("🚧 Meal plan generation will be implemented in Phase 4-5")
+    
+    # Button to go back to preferences
+    if st.button("← Back to Preferences"):
+        st.session_state.stage = 'onboarding'
+        st.rerun()
 
 # Temporary API test section (will be removed in later phases)
 st.divider()
