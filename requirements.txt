@@ -1,0 +1,4 @@
+streamlit>=1.48.0
+httpx>=0.28.1
+pandas>=2.3.1
+python-dotenv>=1.1.1

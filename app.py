@@ -255,80 +255,6 @@ def parse_llm_response(response_text):
     except Exception as e:
         return None, f"Unexpected error: {str(e)}"
 
-# API test functions (from Phase 1)
-def test_gemini_api():
-    """Test connection to Google Gemini API"""
-    api_key = os.getenv("GEMINI_API_KEY")
-    
-    if not api_key or api_key == "YOUR_GEMINI_API_KEY_HERE":
-        return None, "Please add your Gemini API key to .env file"
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "contents": [{
-            "parts": [{
-                "text": "Say hello and confirm you're working. Response in one sentence."
-            }]
-        }]
-    }
-    
-    try:
-        with httpx.Client() as client:
-            response = client.post(url, json=data, headers=headers, timeout=10.0)
-            
-            if response.status_code == 200:
-                result = response.json()
-                text = result['candidates'][0]['content']['parts'][0]['text']
-                return text, None
-            else:
-                return None, f"API Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
-
-def test_openai_api():
-    """Test connection to OpenAI API"""
-    api_key = os.getenv("OPENAI_API_KEY")
-    # Use selected model from session state
-    model = st.session_state.get('selected_model', 'gpt-4o-mini')
-    
-    if not api_key or api_key == "YOUR_OPENAI_API_KEY_HERE":
-        return None, "Please add your OpenAI API key to .env file"
-    
-    url = "https://api.openai.com/v1/chat/completions"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": "Say hello and confirm you're working. Response in one sentence."
-            }
-        ],
-        "max_tokens": 50
-    }
-    
-    try:
-        with httpx.Client() as client:
-            response = client.post(url, json=data, headers=headers, timeout=10.0)
-            
-            if response.status_code == 200:
-                result = response.json()
-                text = result['choices'][0]['message']['content']
-                return text, None
-            else:
-                return None, f"API Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
 
 st.set_page_config(
     page_title="Healthy Meals AI",
@@ -505,19 +431,23 @@ with st.sidebar:
     st.subheader("🤖 AI Model")
     
     model_options = {
-        "gpt-5-nano": "GPT-5 Nano - Latest & Ultra-fast",
-        "gpt-5-mini": "GPT-5 Mini - Latest & Efficient",
         "gpt-4o-mini": "GPT-4o Mini - Fast & Cost-effective",
         "gpt-4o": "GPT-4o - Balanced Performance", 
         "gpt-4-turbo": "GPT-4 Turbo - High Quality",
         "gpt-3.5-turbo": "GPT-3.5 Turbo - Basic & Speedy"
     }
     
+    # Handle case where previously selected model is no longer available
+    current_model = st.session_state.selected_model
+    if current_model not in model_options:
+        current_model = "gpt-4o-mini"  # Default to gpt-4o-mini
+        st.session_state.selected_model = current_model
+    
     selected_model = st.selectbox(
         "Choose your AI model:",
         options=list(model_options.keys()),
         format_func=lambda x: model_options[x],
-        index=list(model_options.keys()).index(st.session_state.selected_model),
+        index=list(model_options.keys()).index(current_model),
         help="Higher quality models provide better recipes but take longer and cost more"
     )
     
@@ -627,8 +557,35 @@ elif st.session_state.stage == 'generating':
         response_text, error = get_meal_plan_from_llm(prompt, st.session_state.selected_model)
         
         if error:
-            st.error(f"❌ Failed to generate meal plan: {error}")
-            st.info("Please try again or check your API configuration.")
+            st.error("❌ **Failed to generate your meal plan**")
+            
+            # Provide specific help based on error type
+            if "Connection Error" in error:
+                st.error("**Connection Problem:** Unable to reach the AI service")
+                st.info("💡 **Try these solutions:**\n- Check your internet connection\n- Wait a moment and try again\n- The AI service might be temporarily busy")
+            elif "API Error: 400" in error:
+                if "max_tokens" in error or "max_completion_tokens" in error:
+                    st.error("**Model Configuration Issue:** Token parameter problem")
+                    st.info("💡 **Try selecting a different AI model from the sidebar**")
+                elif "Unsupported parameter" in error:
+                    st.error("**Model Compatibility Issue:** Parameter not supported")
+                    st.info("💡 **Try selecting GPT-4o Mini or GPT-3.5 Turbo from the sidebar**")
+                else:
+                    st.error("**Request Problem:** Invalid request to AI service")
+                    st.info("💡 **Try again or select a different AI model**")
+            elif "API Error: 401" in error:
+                st.error("**Authentication Failed:** Invalid API key")
+                st.info("💡 **Check your .env file and ensure your OpenAI API key is correct**")
+            elif "API Error: 429" in error:
+                st.error("**Rate Limit Exceeded:** Too many requests")
+                st.info("💡 **Wait a few minutes before trying again**")
+            elif "timeout" in error.lower():
+                st.error("**Request Timeout:** AI service took too long to respond")
+                st.info("💡 **Try again - the AI service might be busy**")
+            else:
+                st.error(f"**Error Details:** {error}")
+                st.info("💡 **Try again or contact support if the problem persists**")
+            
             if st.button("← Back to Preferences"):
                 st.session_state.stage = 'onboarding'
                 st.rerun()
@@ -637,11 +594,24 @@ elif st.session_state.stage == 'generating':
             meal_plan, parse_error = parse_llm_response(response_text)
             
             if parse_error:
-                st.error(f"❌ Failed to parse meal plan: {parse_error}")
-                st.info("Please try again - the AI response was not in the expected format.")
-                if st.button("← Back to Preferences"):
-                    st.session_state.stage = 'onboarding'
-                    st.rerun()
+                st.error("❌ **Unable to process the meal plan**")
+                st.error("**Parsing Issue:** The AI response wasn't in the expected format")
+                st.info("💡 **This usually resolves by trying again:**\n- Click 'Try Again' below\n- Or try a different AI model from the sidebar\n- GPT-4o Mini tends to be more reliable for structured responses")
+                
+                with st.expander("🔍 Technical Details (for debugging)"):
+                    st.text(f"Parse Error: {parse_error}")
+                    st.text("Raw AI Response:")
+                    st.text(response_text[:500] + "..." if len(response_text) > 500 else response_text)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 Try Again"):
+                        st.session_state.stage = 'generating'
+                        st.rerun()
+                with col2:
+                    if st.button("← Back to Preferences"):
+                        st.session_state.stage = 'onboarding'
+                        st.rerun()
             else:
                 # Success! Store and display
                 st.session_state.meal_plan = meal_plan
@@ -823,110 +793,3 @@ elif st.session_state.stage == 'grocery_list':
             st.session_state.stage = 'plan_view'
             st.rerun()
 
-# Temporary API test section (will be removed in later phases)
-st.divider()
-with st.expander("🔧 API Connection Test (Development Only)"):
-    st.markdown("### Testing LLM API Connection")
-    
-    provider = os.getenv("LLM_PROVIDER", "gemini")
-    # Use selected model from session state instead of environment variable
-    if provider == "openai":
-        model = st.session_state.get('selected_model', 'gpt-4o-mini')
-    else:
-        model = "gemini-pro"
-    
-    st.info(f"Current LLM provider: **{provider}**")
-    if provider == "openai":
-        st.info(f"Current OpenAI model: **{model}**")
-    st.markdown("To change providers, edit `.env` file and set `LLM_PROVIDER` to 'gemini' or 'openai'")
-    
-    if st.button("Test API Connection"):
-        with st.spinner("Connecting to LLM API..."):
-            if provider == "gemini":
-                response, error = test_gemini_api()
-            elif provider == "openai":
-                response, error = test_openai_api()
-            else:
-                response = None
-                error = f"Invalid provider: {provider}. Please use 'gemini' or 'openai'"
-            
-            if response:
-                st.success("✅ API Connection Successful!")
-                st.markdown("**LLM Response:**")
-                st.write(response)
-            else:
-                st.error("❌ API Connection Failed")
-                st.error(error)
-def test_gemini_api():
-    """Test connection to Google Gemini API"""
-    api_key = os.getenv("GEMINI_API_KEY")
-    
-    if not api_key or api_key == "YOUR_GEMINI_API_KEY_HERE":
-        return None, "Please add your Gemini API key to .env file"
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "contents": [{
-            "parts": [{
-                "text": "Say hello and confirm you're working. Response in one sentence."
-            }]
-        }]
-    }
-    
-    try:
-        with httpx.Client() as client:
-            response = client.post(url, json=data, headers=headers, timeout=10.0)
-            
-            if response.status_code == 200:
-                result = response.json()
-                text = result['candidates'][0]['content']['parts'][0]['text']
-                return text, None
-            else:
-                return None, f"API Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
-
-def test_openai_api():
-    """Test connection to OpenAI API"""
-    api_key = os.getenv("OPENAI_API_KEY")
-    # Use selected model from session state
-    model = st.session_state.get('selected_model', 'gpt-4o-mini')
-    
-    if not api_key or api_key == "YOUR_OPENAI_API_KEY_HERE":
-        return None, "Please add your OpenAI API key to .env file"
-    
-    url = "https://api.openai.com/v1/chat/completions"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": "Say hello and confirm you're working. Response in one sentence."
-            }
-        ],
-        "max_tokens": 50
-    }
-    
-    try:
-        with httpx.Client() as client:
-            response = client.post(url, json=data, headers=headers, timeout=10.0)
-            
-            if response.status_code == 200:
-                result = response.json()
-                text = result['choices'][0]['message']['content']
-                return text, None
-            else:
-                return None, f"API Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
