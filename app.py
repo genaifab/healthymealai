@@ -235,6 +235,8 @@ if 'stage' not in st.session_state:
     st.session_state.stage = 'onboarding'
 if 'preferences' not in st.session_state:
     st.session_state.preferences = {}
+if 'meal_plan' not in st.session_state:
+    st.session_state.meal_plan = None
 
 # Title in main area
 st.title("🥗 Healthy Meals AI")
@@ -287,7 +289,8 @@ with st.sidebar:
             'excluded_foods': excluded_foods,
             'meals_per_day': meals_per_day
         }
-        st.session_state.stage = 'plan_view'
+        st.session_state.stage = 'generating'
+        st.session_state.meal_plan = None  # Clear any existing plan
         st.rerun()
 
 # Main content area based on current stage
@@ -313,51 +316,108 @@ if st.session_state.stage == 'onboarding':
         **👈 Start by setting your preferences in the sidebar!**
         """)
 
-elif st.session_state.stage == 'plan_view':
-    # Plan view - now with Phase 4 prompt testing
-    st.markdown("## Your Weekly Meal Plan")
+elif st.session_state.stage == 'generating':
+    # Generation phase - show spinner and generate meal plan
+    st.markdown("## 🚀 Generating Your Personalized Meal Plan...")
     
-    # Display captured preferences for debugging
-    with st.expander("📋 Your Preferences", expanded=False):
-        st.write("**User Profile:**", st.session_state.preferences.get('user_profile'))
-        st.write("**Excluded Foods:**", st.session_state.preferences.get('excluded_foods') or "None")
-        st.write("**Meals per Day:**", st.session_state.preferences.get('meals_per_day'))
-    
-    # Test prompt generation (Phase 4)
-    with st.expander("🔧 Phase 4 Testing - Prompt Generation", expanded=True):
-        st.markdown("### Generated Prompt")
+    with st.spinner("Creating your meal plan... This may take up to 60 seconds..."):
+        # Generate the prompt
         prompt = construct_llm_prompt(st.session_state.preferences)
-        st.code(prompt[:500] + "..." if len(prompt) > 500 else prompt)
         
-        if st.button("Test LLM API Call"):
-            with st.spinner("Calling LLM API... This may take up to 60 seconds..."):
-                response_text, error = get_meal_plan_from_llm(prompt)
+        # Call the LLM API
+        response_text, error = get_meal_plan_from_llm(prompt)
+        
+        if error:
+            st.error(f"❌ Failed to generate meal plan: {error}")
+            st.info("Please try again or check your API configuration.")
+            if st.button("← Back to Preferences"):
+                st.session_state.stage = 'onboarding'
+                st.rerun()
+        else:
+            # Parse the response
+            meal_plan, parse_error = parse_llm_response(response_text)
+            
+            if parse_error:
+                st.error(f"❌ Failed to parse meal plan: {parse_error}")
+                st.info("Please try again - the AI response was not in the expected format.")
+                if st.button("← Back to Preferences"):
+                    st.session_state.stage = 'onboarding'
+                    st.rerun()
+            else:
+                # Success! Store and display
+                st.session_state.meal_plan = meal_plan
+                st.session_state.stage = 'plan_view'
+                st.rerun()
+
+elif st.session_state.stage == 'plan_view':
+    # Plan view - display the generated meal plan
+    st.markdown("## 🥗 Your Personalized 3-Day Meal Plan")
+    
+    if st.session_state.meal_plan:
+        # Display preferences
+        with st.expander("📋 Your Preferences", expanded=False):
+            st.write("**Profile:**", st.session_state.preferences.get('user_profile'))
+            st.write("**Excluded Foods:**", st.session_state.preferences.get('excluded_foods') or "None")
+            st.write("**Meals per Day:**", st.session_state.preferences.get('meals_per_day'))
+        
+        st.divider()
+        
+        # Display the 3-day meal plan using columns
+        days = ["monday", "tuesday", "wednesday"]
+        day_names = ["Monday", "Tuesday", "Wednesday"] 
+        
+        cols = st.columns(3)
+        
+        for i, (day, day_name) in enumerate(zip(days, day_names)):
+            with cols[i]:
+                st.subheader(f"📅 {day_name}")
                 
-                if error:
-                    st.error(f"❌ API Error: {error}")
+                if day in st.session_state.meal_plan["week_plan"]:
+                    day_meals = st.session_state.meal_plan["week_plan"][day]
+                    
+                    # Display each meal for this day
+                    for meal_type, meal_data in day_meals.items():
+                        with st.expander(f"🍽️ {meal_type.title()}", expanded=False):
+                            st.markdown(f"**{meal_data.get('name', 'Unknown Recipe')}**")
+                            st.write(f"⏱️ **Prep Time:** {meal_data.get('prep_time', 'N/A')}")
+                            
+                            if meal_data.get('calories'):
+                                st.write(f"🔥 **Calories:** {meal_data.get('calories')}")
+                            if meal_data.get('protein'):
+                                st.write(f"💪 **Protein:** {meal_data.get('protein')}")
+                            
+                            if meal_data.get('ingredients'):
+                                st.write("**🥑 Ingredients:**")
+                                for ingredient in meal_data['ingredients']:
+                                    st.write(f"• {ingredient}")
+                            
+                            if meal_data.get('instructions'):
+                                st.write("**👩‍🍳 Instructions:**")
+                                for j, instruction in enumerate(meal_data['instructions'], 1):
+                                    st.write(f"{j}. {instruction}")
                 else:
-                    st.success("✅ API Response Received!")
-                    
-                    # Show raw response
-                    st.markdown("#### Raw Response (first 1000 chars):")
-                    st.code(response_text[:1000] + "..." if len(response_text) > 1000 else response_text)
-                    
-                    # Try to parse
-                    meal_plan, parse_error = parse_llm_response(response_text)
-                    
-                    if parse_error:
-                        st.error(f"❌ Parse Error: {parse_error}")
-                    else:
-                        st.success("✅ Successfully parsed JSON!")
-                        st.markdown("#### Parsed Meal Plan Structure:")
-                        st.json(meal_plan)
+                    st.error(f"No meal plan data for {day_name}")
+        
+        st.divider()
+        
+        # Action buttons
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("🔄 Generate New Plan"):
+                st.session_state.stage = 'generating'
+                st.session_state.meal_plan = None
+                st.rerun()
+        
+        with col2:
+            if st.button("← Back to Preferences"):
+                st.session_state.stage = 'onboarding'
+                st.rerun()
     
-    st.info("🚧 Full meal plan display will be implemented in Phase 5")
-    
-    # Button to go back to preferences
-    if st.button("← Back to Preferences"):
-        st.session_state.stage = 'onboarding'
-        st.rerun()
+    else:
+        st.error("No meal plan data available. Please generate a new plan.")
+        if st.button("← Back to Preferences"):
+            st.session_state.stage = 'onboarding'
+            st.rerun()
 
 # Temporary API test section (will be removed in later phases)
 st.divider()
