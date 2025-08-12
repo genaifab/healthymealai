@@ -22,6 +22,7 @@ def construct_llm_prompt(preferences):
     
     dietary_requirements = profile_map.get(preferences['user_profile'], "")
     excluded_foods = preferences.get('excluded_foods', '')
+    plan_duration = preferences.get('plan_duration', '3-Day Meal Plan')
     meals_per_day = preferences.get('meals_per_day', 'Breakfast, Lunch, Dinner')
     
     # Determine which meals to include
@@ -30,7 +31,17 @@ def construct_llm_prompt(preferences):
     else:
         meal_list = ["lunch", "dinner"]
     
-    prompt = f"""You are a professional nutritionist creating a personalized 3-day meal plan.
+    # Determine number of days and day structure
+    if "1-Day" in plan_duration:
+        num_days = 1
+        days_structure = '"monday": { ... same structure ... }'
+        days_list = ["monday"]
+    else:  # 3-Day
+        num_days = 3
+        days_structure = '"monday": { ... same structure ... }, "tuesday": { ... same structure ... }, "wednesday": { ... same structure ... }'
+        days_list = ["monday", "tuesday", "wednesday"]
+    
+    prompt = f"""You are a professional nutritionist creating a personalized {num_days}-day meal plan.
 
 DIETARY REQUIREMENTS:
 {dietary_requirements}
@@ -41,21 +52,17 @@ EXCLUDED FOODS (must not appear in any recipe):
 MEALS NEEDED PER DAY:
 {', '.join(meal_list)}
 
-Create a complete 3-day meal plan following these rules:
+Create a complete {num_days}-day meal plan following these rules:
 1. Use ONLY whole, non-processed ingredients
 2. Each recipe should be completable in 45 minutes or less
-3. Provide variety - no recipe should repeat
+3. Provide variety - no recipe should repeat{' across days' if num_days > 1 else ''}
 4. Include complete nutritional balance for each day
 5. Recipes should be practical for busy professionals
 
 Return ONLY a valid JSON object with this exact structure (no additional text):
 {{
   "week_plan": {{
-    "monday": {{
-      {', '.join([f'"{meal}": {{"name": "Recipe Name", "prep_time": "X minutes", "ingredients": ["ingredient 1", "ingredient 2"], "instructions": ["step 1", "step 2"], "calories": 000, "protein": "00g"}}' for meal in meal_list])}
-    }},
-    "tuesday": {{ ... same structure ... }},
-    "wednesday": {{ ... same structure ... }}
+    {days_structure.replace('{ ... same structure ... }', '{ ' + ', '.join([f'"{meal}": {{"name": "Recipe Name", "prep_time": "X minutes", "ingredients": ["ingredient 1", "ingredient 2"], "instructions": ["step 1", "step 2"], "calories": 000, "protein": "00g"}}' for meal in meal_list]) + ' }')}
   }}
 }}
 
@@ -115,6 +122,95 @@ def get_meal_plan_from_llm(prompt):
         # Gemini implementation would go here
         return None, "Gemini API not yet implemented"
 
+def generate_grocery_list(meal_plan):
+    """
+    Generate a consolidated grocery list from the meal plan.
+    Aggregates ingredients and categorizes them.
+    """
+    # Ingredient categorization
+    categories = {
+        "Produce": ["tomato", "onion", "garlic", "bell pepper", "spinach", "lettuce", "carrot", "celery", 
+                   "cucumber", "avocado", "lemon", "lime", "apple", "banana", "berry", "broccoli", 
+                   "zucchini", "mushroom", "potato", "sweet potato", "herbs", "parsley", "cilantro",
+                   "basil", "arugula", "kale", "cabbage", "cauliflower", "asparagus", "green beans"],
+        
+        "Proteins": ["chicken", "beef", "pork", "fish", "salmon", "tuna", "shrimp", "eggs", "tofu", 
+                    "tempeh", "beans", "lentils", "chickpeas", "quinoa", "nuts", "almonds", "walnuts",
+                    "peanuts", "seeds", "chia", "hemp", "turkey", "lamb"],
+        
+        "Dairy": ["milk", "cheese", "yogurt", "butter", "cream", "sour cream", "cottage cheese",
+                 "mozzarella", "parmesan", "feta", "ricotta", "greek yogurt"],
+        
+        "Grains & Pantry": ["rice", "bread", "pasta", "flour", "oats", "cereal", "crackers", "oil",
+                           "olive oil", "coconut oil", "vinegar", "soy sauce", "salt", "pepper", 
+                           "spices", "honey", "maple syrup", "stock", "broth", "canned tomatoes",
+                           "coconut milk", "tahini", "peanut butter", "vanilla", "baking powder"],
+        
+        "Frozen": ["frozen vegetables", "frozen fruit", "frozen berries", "ice"],
+        
+        "Other": []  # Catch-all category
+    }
+    
+    # Collect all ingredients
+    ingredients = []
+    
+    for day_name, day_meals in meal_plan["week_plan"].items():
+        for meal_name, meal_data in day_meals.items():
+            if "ingredients" in meal_data:
+                ingredients.extend(meal_data["ingredients"])
+    
+    # Clean and normalize ingredients
+    cleaned_ingredients = []
+    for ingredient in ingredients:
+        # Basic cleaning - remove quantities and common prefixes
+        clean_ingredient = ingredient.lower().strip()
+        # Remove common quantity indicators
+        clean_ingredient = clean_ingredient.replace("cups of", "").replace("cup of", "")
+        clean_ingredient = clean_ingredient.replace("tablespoons of", "").replace("tablespoon of", "")
+        clean_ingredient = clean_ingredient.replace("teaspoons of", "").replace("teaspoon of", "")
+        clean_ingredient = clean_ingredient.replace("ounces of", "").replace("ounce of", "")
+        clean_ingredient = clean_ingredient.replace("pounds of", "").replace("pound of", "")
+        clean_ingredient = clean_ingredient.replace("slices of", "").replace("slice of", "")
+        clean_ingredient = clean_ingredient.replace("pieces of", "").replace("piece of", "")
+        clean_ingredient = clean_ingredient.replace("cloves of", "").replace("clove of", "")
+        clean_ingredient = clean_ingredient.strip()
+        
+        if clean_ingredient:
+            cleaned_ingredients.append((ingredient, clean_ingredient))  # Keep original for display
+    
+    # Remove duplicates while preserving original formatting
+    unique_ingredients = {}
+    for original, cleaned in cleaned_ingredients:
+        if cleaned not in unique_ingredients:
+            unique_ingredients[cleaned] = original
+    
+    # Categorize ingredients
+    categorized_list = {category: [] for category in categories.keys()}
+    
+    for cleaned, original in unique_ingredients.items():
+        categorized = False
+        for category, keywords in categories.items():
+            if category == "Other":
+                continue
+            for keyword in keywords:
+                if keyword in cleaned:
+                    categorized_list[category].append(original)
+                    categorized = True
+                    break
+            if categorized:
+                break
+        
+        if not categorized:
+            categorized_list["Other"].append(original)
+    
+    # Remove empty categories and sort ingredients
+    final_list = {}
+    for category, items in categorized_list.items():
+        if items:
+            final_list[category] = sorted(set(items))
+    
+    return final_list
+
 def parse_llm_response(response_text):
     """
     Parse the LLM's JSON response into a Python dictionary.
@@ -138,8 +234,11 @@ def parse_llm_response(response_text):
         if "week_plan" not in meal_plan:
             return None, "Invalid response structure: missing 'week_plan'"
         
-        days = ["monday", "tuesday", "wednesday"]  # Only validate 3 days for testing
-        for day in days:
+        # Determine expected days based on plan duration (fallback to 3 days if not specified)
+        plan_data = meal_plan.get("week_plan", {})
+        expected_days = ["monday"] if len(plan_data) == 1 else ["monday", "tuesday", "wednesday"]
+        
+        for day in expected_days:
             if day not in meal_plan["week_plan"]:
                 return None, f"Invalid response structure: missing '{day}'"
         
@@ -237,6 +336,8 @@ if 'preferences' not in st.session_state:
     st.session_state.preferences = {}
 if 'meal_plan' not in st.session_state:
     st.session_state.meal_plan = None
+if 'grocery_list' not in st.session_state:
+    st.session_state.grocery_list = None
 
 # Title in main area
 st.title("🥗 Healthy Meals AI")
@@ -266,12 +367,21 @@ with st.sidebar:
         help="Separate multiple items with commas"
     )
     
+    # Plan Duration
+    st.subheader("Plan Duration")
+    plan_duration = st.radio(
+        "Select your meal plan duration:",
+        ["1-Day Meal Plan", "3-Day Meal Plan"],
+        index=1,  # Default to 3-day
+        help="Choose how many days of meals to generate"
+    )
+    
     # Meals per Day
     st.subheader("Meals per Day")
     meals_per_day = st.radio(
-        "Select your meal plan:",
+        "Select your daily meals:",
         ["Breakfast, Lunch, Dinner", "Lunch, Dinner"],
-        help="Choose which meals to include in your plan"
+        help="Choose which meals to include each day"
     )
     
     # Divider before button
@@ -279,7 +389,7 @@ with st.sidebar:
     
     # Generate button
     if st.button(
-        "🚀 Generate My Weekly Plan",
+        "🚀 Generate My Meal Plan",
         type="primary",
         use_container_width=True
     ):
@@ -287,6 +397,7 @@ with st.sidebar:
         st.session_state.preferences = {
             'user_profile': user_profile,
             'excluded_foods': excluded_foods,
+            'plan_duration': plan_duration,
             'meals_per_day': meals_per_day
         }
         st.session_state.stage = 'generating'
@@ -351,64 +462,81 @@ elif st.session_state.stage == 'generating':
 
 elif st.session_state.stage == 'plan_view':
     # Plan view - display the generated meal plan
-    st.markdown("## 🥗 Your Personalized 3-Day Meal Plan")
+    plan_duration = st.session_state.preferences.get('plan_duration', '3-Day Meal Plan')
+    duration_text = plan_duration.replace(' Meal Plan', '')
+    
+    st.markdown(f"## 🥗 Your Personalized {duration_text} Meal Plan")
     
     if st.session_state.meal_plan:
         # Display preferences
         with st.expander("📋 Your Preferences", expanded=False):
             st.write("**Profile:**", st.session_state.preferences.get('user_profile'))
+            st.write("**Plan Duration:**", st.session_state.preferences.get('plan_duration'))
             st.write("**Excluded Foods:**", st.session_state.preferences.get('excluded_foods') or "None")
             st.write("**Meals per Day:**", st.session_state.preferences.get('meals_per_day'))
         
         st.divider()
         
-        # Display the 3-day meal plan using columns
-        days = ["monday", "tuesday", "wednesday"]
-        day_names = ["Monday", "Tuesday", "Wednesday"] 
+        # Determine days to display based on what's available in the meal plan
+        available_days = list(st.session_state.meal_plan["week_plan"].keys())
+        day_name_map = {
+            "monday": "Monday",
+            "tuesday": "Tuesday", 
+            "wednesday": "Wednesday",
+            "thursday": "Thursday",
+            "friday": "Friday"
+        }
         
-        cols = st.columns(3)
+        # Create columns based on number of days
+        cols = st.columns(len(available_days))
         
-        for i, (day, day_name) in enumerate(zip(days, day_names)):
+        for i, day in enumerate(available_days):
             with cols[i]:
+                day_name = day_name_map.get(day, day.title())
                 st.subheader(f"📅 {day_name}")
                 
-                if day in st.session_state.meal_plan["week_plan"]:
-                    day_meals = st.session_state.meal_plan["week_plan"][day]
-                    
-                    # Display each meal for this day
-                    for meal_type, meal_data in day_meals.items():
-                        with st.expander(f"🍽️ {meal_type.title()}", expanded=False):
-                            st.markdown(f"**{meal_data.get('name', 'Unknown Recipe')}**")
-                            st.write(f"⏱️ **Prep Time:** {meal_data.get('prep_time', 'N/A')}")
-                            
-                            if meal_data.get('calories'):
-                                st.write(f"🔥 **Calories:** {meal_data.get('calories')}")
-                            if meal_data.get('protein'):
-                                st.write(f"💪 **Protein:** {meal_data.get('protein')}")
-                            
-                            if meal_data.get('ingredients'):
-                                st.write("**🥑 Ingredients:**")
-                                for ingredient in meal_data['ingredients']:
-                                    st.write(f"• {ingredient}")
-                            
-                            if meal_data.get('instructions'):
-                                st.write("**👩‍🍳 Instructions:**")
-                                for j, instruction in enumerate(meal_data['instructions'], 1):
-                                    st.write(f"{j}. {instruction}")
-                else:
-                    st.error(f"No meal plan data for {day_name}")
+                day_meals = st.session_state.meal_plan["week_plan"][day]
+                
+                # Display each meal for this day
+                for meal_type, meal_data in day_meals.items():
+                    with st.expander(f"🍽️ {meal_type.title()}", expanded=False):
+                        st.markdown(f"**{meal_data.get('name', 'Unknown Recipe')}**")
+                        st.write(f"⏱️ **Prep Time:** {meal_data.get('prep_time', 'N/A')}")
+                        
+                        if meal_data.get('calories'):
+                            st.write(f"🔥 **Calories:** {meal_data.get('calories')}")
+                        if meal_data.get('protein'):
+                            st.write(f"💪 **Protein:** {meal_data.get('protein')}")
+                        
+                        if meal_data.get('ingredients'):
+                            st.write("**🥑 Ingredients:**")
+                            for ingredient in meal_data['ingredients']:
+                                st.write(f"• {ingredient}")
+                        
+                        if meal_data.get('instructions'):
+                            st.write("**👩‍🍳 Instructions:**")
+                            for j, instruction in enumerate(meal_data['instructions'], 1):
+                                st.write(f"{j}. {instruction}")
         
         st.divider()
         
         # Action buttons
-        col1, col2 = st.columns([1, 1])
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            if st.button("🔄 Generate New Plan"):
-                st.session_state.stage = 'generating'
-                st.session_state.meal_plan = None
+            if st.button("🛒 Create Grocery List", type="secondary"):
+                # Generate grocery list and switch to grocery view
+                st.session_state.grocery_list = generate_grocery_list(st.session_state.meal_plan)
+                st.session_state.stage = 'grocery_list'
                 st.rerun()
         
         with col2:
+            if st.button("🔄 Generate New Plan"):
+                st.session_state.stage = 'generating'
+                st.session_state.meal_plan = None
+                st.session_state.grocery_list = None
+                st.rerun()
+        
+        with col3:
             if st.button("← Back to Preferences"):
                 st.session_state.stage = 'onboarding'
                 st.rerun()
@@ -417,6 +545,88 @@ elif st.session_state.stage == 'plan_view':
         st.error("No meal plan data available. Please generate a new plan.")
         if st.button("← Back to Preferences"):
             st.session_state.stage = 'onboarding'
+            st.rerun()
+
+elif st.session_state.stage == 'grocery_list':
+    # Grocery list view - display the consolidated shopping list
+    plan_duration = st.session_state.preferences.get('plan_duration', '3-Day Meal Plan')
+    duration_text = plan_duration.replace(' Meal Plan', '')
+    
+    st.markdown(f"## 🛒 Your {duration_text} Grocery List")
+    
+    if st.session_state.grocery_list:
+        # Display meal plan info
+        with st.expander("📋 Based on Your Meal Plan", expanded=False):
+            st.write("**Profile:**", st.session_state.preferences.get('user_profile'))
+            st.write("**Plan Duration:**", st.session_state.preferences.get('plan_duration'))
+            st.write("**Meals per Day:**", st.session_state.preferences.get('meals_per_day'))
+        
+        st.divider()
+        
+        # Display grocery list by categories
+        st.markdown("### 🥗 Organized by Store Section")
+        
+        # Create columns for categories (max 3 columns for readability)
+        categories = list(st.session_state.grocery_list.keys())
+        
+        if len(categories) <= 3:
+            cols = st.columns(len(categories))
+        else:
+            # Split into multiple rows if more than 3 categories
+            cols = st.columns(3)
+        
+        for i, (category, items) in enumerate(st.session_state.grocery_list.items()):
+            col_index = i % 3 if len(categories) > 3 else i
+            
+            with cols[col_index]:
+                # Category emoji mapping
+                category_emoji = {
+                    "Produce": "🥬",
+                    "Proteins": "🥩", 
+                    "Dairy": "🥛",
+                    "Grains & Pantry": "🌾",
+                    "Frozen": "🧊",
+                    "Other": "📦"
+                }
+                
+                emoji = category_emoji.get(category, "📦")
+                st.subheader(f"{emoji} {category}")
+                
+                # Display items as checkboxes for easy shopping
+                for item in items:
+                    st.markdown(f"☐ {item}")
+                
+                # Add some spacing between categories
+                if len(categories) > 3 and (i + 1) % 3 == 0 and i < len(categories) - 1:
+                    st.markdown("---")
+        
+        # Summary stats
+        st.divider()
+        total_items = sum(len(items) for items in st.session_state.grocery_list.values())
+        st.info(f"📊 **Total Items:** {total_items} across {len(categories)} categories")
+        
+        # Action buttons
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            if st.button("📋 Back to Meal Plan"):
+                st.session_state.stage = 'plan_view'
+                st.rerun()
+        
+        with col2:
+            if st.button("🔄 Regenerate List"):
+                # Regenerate grocery list from current meal plan
+                st.session_state.grocery_list = generate_grocery_list(st.session_state.meal_plan)
+                st.rerun()
+        
+        with col3:
+            if st.button("← Back to Preferences"):
+                st.session_state.stage = 'onboarding'
+                st.rerun()
+    
+    else:
+        st.error("No grocery list data available. Please generate a meal plan first.")
+        if st.button("← Back to Meal Plan"):
+            st.session_state.stage = 'plan_view'
             st.rerun()
 
 # Temporary API test section (will be removed in later phases)
