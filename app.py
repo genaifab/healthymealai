@@ -12,11 +12,15 @@ def construct_llm_prompt(preferences):
     Construct a detailed prompt for the LLM based on user preferences.
     Returns a string prompt that instructs the LLM to return JSON.
     """
-    # Map user profiles to dietary requirements
+    # Map user profiles to dietary requirements (handle emoji prefixes)
     profile_map = {
+        "🥗 Standard Healthy Eating": "Focus on whole foods, balanced nutrition, lean proteins, whole grains, and plenty of vegetables. Avoid processed foods.",
         "Standard Healthy Eating": "Focus on whole foods, balanced nutrition, lean proteins, whole grains, and plenty of vegetables. Avoid processed foods.",
+        "🍃 Low-Sugar/Pre-Diabetic Friendly": "Low glycemic index foods only. NO added sugars, NO refined carbohydrates, NO white bread/pasta/rice. Focus on complex carbs, lean proteins, and non-starchy vegetables.",
         "Low-Sugar/Pre-Diabetic Friendly": "Low glycemic index foods only. NO added sugars, NO refined carbohydrates, NO white bread/pasta/rice. Focus on complex carbs, lean proteins, and non-starchy vegetables.",
+        "🌱 Vegetarian": "No meat or fish. Include diverse plant proteins (legumes, tofu, tempeh, quinoa). Ensure complete proteins and adequate B12, iron, and omega-3 sources.",
         "Vegetarian": "No meat or fish. Include diverse plant proteins (legumes, tofu, tempeh, quinoa). Ensure complete proteins and adequate B12, iron, and omega-3 sources.",
+        "🌾 Gluten-Free": "Absolutely NO wheat, barley, rye, or cross-contaminated oats. Use rice, quinoa, corn, certified gluten-free oats, and other safe grains.",
         "Gluten-Free": "Absolutely NO wheat, barley, rye, or cross-contaminated oats. Use rice, quinoa, corn, certified gluten-free oats, and other safe grains."
     }
     
@@ -25,8 +29,8 @@ def construct_llm_prompt(preferences):
     plan_duration = preferences.get('plan_duration', '3-Day Meal Plan')
     meals_per_day = preferences.get('meals_per_day', 'Breakfast, Lunch, Dinner')
     
-    # Determine which meals to include
-    if "Breakfast" in meals_per_day:
+    # Determine which meals to include (handle emoji prefixes)
+    if "Breakfast" in meals_per_day or "🌅" in meals_per_day:
         meal_list = ["breakfast", "lunch", "dinner"]
     else:
         meal_list = ["lunch", "dinner"]
@@ -70,7 +74,7 @@ Remember: Return ONLY the JSON object, no explanations or markdown formatting.""
     
     return prompt
 
-def get_meal_plan_from_llm(prompt):
+def get_meal_plan_from_llm(prompt, model=None):
     """
     Send prompt to LLM API and return the raw response.
     """
@@ -78,7 +82,9 @@ def get_meal_plan_from_llm(prompt):
     
     if provider == "openai":
         api_key = os.getenv("OPENAI_API_KEY")
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        # Use provided model or fall back to environment variable or default
+        if model is None:
+            model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         
         if not api_key or api_key == "YOUR_OPENAI_API_KEY_HERE":
             return None, "Please add your OpenAI API key to .env file"
@@ -287,7 +293,8 @@ def test_gemini_api():
 def test_openai_api():
     """Test connection to OpenAI API"""
     api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    # Use selected model from session state
+    model = st.session_state.get('selected_model', 'gpt-4o-mini')
     
     if not api_key or api_key == "YOUR_OPENAI_API_KEY_HERE":
         return None, "Please add your OpenAI API key to .env file"
@@ -329,6 +336,150 @@ st.set_page_config(
     layout="wide"
 )
 
+# Custom CSS for styling and color palette
+st.markdown("""
+<style>
+    /* Import Poppins font */
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    
+    /* Apply Poppins font globally */
+    .main * {
+        font-family: 'Poppins', sans-serif !important;
+    }
+    
+    /* Color palette variables */
+    :root {
+        --primary-green: #2E8B57;
+        --accent-orange: #FFA500;
+        --neutral-text: #333333;
+        --subtle-gray: #F5F5F5;
+        --white: #FFFFFF;
+    }
+    
+    /* Main title styling */
+    .main h1 {
+        color: var(--primary-green) !important;
+        font-weight: 600 !important;
+        text-align: center;
+        margin-bottom: 2rem !important;
+    }
+    
+    /* Header and subheader styling */
+    .main h2 {
+        color: var(--primary-green) !important;
+        font-weight: 500 !important;
+        margin-top: 2rem !important;
+    }
+    
+    .main h3 {
+        color: var(--neutral-text) !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background-color: var(--subtle-gray) !important;
+    }
+    
+    /* Primary button styling */
+    .stButton > button[kind="primary"] {
+        background-color: var(--accent-orange) !important;
+        border-color: var(--accent-orange) !important;
+        color: var(--white) !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
+        font-family: 'Poppins', sans-serif !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background-color: #E6940A !important;
+        border-color: #E6940A !important;
+    }
+    
+    /* Secondary button styling */
+    .stButton > button[kind="secondary"] {
+        background-color: var(--primary-green) !important;
+        border-color: var(--primary-green) !important;
+        color: var(--white) !important;
+        font-weight: 500 !important;
+        border-radius: 8px !important;
+        font-family: 'Poppins', sans-serif !important;
+    }
+    
+    .stButton > button[kind="secondary"]:hover {
+        background-color: #265B47 !important;
+        border-color: #265B47 !important;
+    }
+    
+    /* Regular button styling */
+    .stButton > button {
+        border-radius: 8px !important;
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background-color: var(--subtle-gray) !important;
+        border-radius: 8px !important;
+        font-family: 'Poppins', sans-serif !important;
+    }
+    
+    /* Input field styling */
+    .stTextInput > div > div > input {
+        border-radius: 8px !important;
+        border-color: var(--primary-green) !important;
+        font-family: 'Poppins', sans-serif !important;
+    }
+    
+    /* Radio button styling */
+    .stRadio > label {
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 500 !important;
+        color: var(--neutral-text) !important;
+    }
+    
+    /* Multiselect styling */
+    .stMultiSelect > label {
+        font-family: 'Poppins', sans-serif !important;
+        font-weight: 500 !important;
+        color: var(--neutral-text) !important;
+    }
+    
+    /* Success/Info message styling */
+    .stSuccess {
+        background-color: #D4EDDA !important;
+        border-color: var(--primary-green) !important;
+        border-radius: 8px !important;
+    }
+    
+    .stInfo {
+        background-color: #E3F2FD !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Spinner color */
+    .stSpinner > div {
+        border-top-color: var(--primary-green) !important;
+    }
+    
+    /* Column spacing improvements */
+    .element-container {
+        margin-bottom: 1rem !important;
+    }
+    
+    /* Card-like appearance for meal expanders */
+    .streamlit-expanderContent {
+        background-color: var(--white) !important;
+        border-radius: 0 0 8px 8px !important;
+        padding: 1rem !important;
+        border: 1px solid #E0E0E0 !important;
+        border-top: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Initialize session state
 if 'stage' not in st.session_state:
     st.session_state.stage = 'onboarding'
@@ -338,29 +489,64 @@ if 'meal_plan' not in st.session_state:
     st.session_state.meal_plan = None
 if 'grocery_list' not in st.session_state:
     st.session_state.grocery_list = None
+if 'selected_model' not in st.session_state:
+    st.session_state.selected_model = "gpt-4o-mini"
 
 # Title in main area
 st.title("🥗 Healthy Meals AI")
+st.markdown("### 🌟 *Personalized meal plans for busy professionals*")
+st.markdown("---")
 
 # Sidebar configuration
 with st.sidebar:
-    st.header("Your Preferences")
+    st.header("⚙️ Configuration")
+    
+    # Model Selection
+    st.subheader("🤖 AI Model")
+    
+    model_options = {
+        "gpt-5-nano": "GPT-5 Nano - Latest & Ultra-fast",
+        "gpt-5-mini": "GPT-5 Mini - Latest & Efficient",
+        "gpt-4o-mini": "GPT-4o Mini - Fast & Cost-effective",
+        "gpt-4o": "GPT-4o - Balanced Performance", 
+        "gpt-4-turbo": "GPT-4 Turbo - High Quality",
+        "gpt-3.5-turbo": "GPT-3.5 Turbo - Basic & Speedy"
+    }
+    
+    selected_model = st.selectbox(
+        "Choose your AI model:",
+        options=list(model_options.keys()),
+        format_func=lambda x: model_options[x],
+        index=list(model_options.keys()).index(st.session_state.selected_model),
+        help="Higher quality models provide better recipes but take longer and cost more"
+    )
+    
+    # Update session state when model changes
+    if selected_model != st.session_state.selected_model:
+        st.session_state.selected_model = selected_model
+        st.rerun()
+    
+    # Show confirmation of selected model
+    st.success(f"✅ **Selected:** {model_options[selected_model]}")
+    
+    st.divider()
+    st.header("🎯 Your Preferences")
     
     # User Persona Selection
-    st.subheader("Your Profile")
+    st.subheader("👤 Your Profile")
     user_profile = st.radio(
         "Which best describes you?",
         [
-            "Standard Healthy Eating",
-            "Low-Sugar/Pre-Diabetic Friendly",
-            "Vegetarian",
-            "Gluten-Free"
+            "🥗 Standard Healthy Eating",
+            "🍃 Low-Sugar/Pre-Diabetic Friendly", 
+            "🌱 Vegetarian",
+            "🌾 Gluten-Free"
         ],
         help="Select the meal plan type that best fits your needs"
     )
     
     # Excluded Foods
-    st.subheader("Foods to Exclude")
+    st.subheader("🚫 Foods to Exclude")
     excluded_foods = st.text_input(
         "List any specific foods to avoid:",
         placeholder="e.g., mushrooms, cilantro, seafood",
@@ -368,19 +554,19 @@ with st.sidebar:
     )
     
     # Plan Duration
-    st.subheader("Plan Duration")
+    st.subheader("📅 Plan Duration")
     plan_duration = st.radio(
         "Select your meal plan duration:",
-        ["1-Day Meal Plan", "3-Day Meal Plan"],
+        ["📋 1-Day Meal Plan", "📋 3-Day Meal Plan"],
         index=1,  # Default to 3-day
         help="Choose how many days of meals to generate"
     )
     
     # Meals per Day
-    st.subheader("Meals per Day")
+    st.subheader("🍽️ Meals per Day")
     meals_per_day = st.radio(
         "Select your daily meals:",
-        ["Breakfast, Lunch, Dinner", "Lunch, Dinner"],
+        ["🌅 Breakfast, Lunch, Dinner", "☀️ Lunch, Dinner"],
         help="Choose which meals to include each day"
     )
     
@@ -430,13 +616,15 @@ if st.session_state.stage == 'onboarding':
 elif st.session_state.stage == 'generating':
     # Generation phase - show spinner and generate meal plan
     st.markdown("## 🚀 Generating Your Personalized Meal Plan...")
+    st.markdown("*Our AI chef is crafting delicious, healthy recipes just for you...*")
+    st.markdown("---")
     
-    with st.spinner("Creating your meal plan... This may take up to 60 seconds..."):
+    with st.spinner("🍳 Creating your meal plan... This may take up to 60 seconds..."):
         # Generate the prompt
         prompt = construct_llm_prompt(st.session_state.preferences)
         
-        # Call the LLM API
-        response_text, error = get_meal_plan_from_llm(prompt)
+        # Call the LLM API with selected model
+        response_text, error = get_meal_plan_from_llm(prompt, st.session_state.selected_model)
         
         if error:
             st.error(f"❌ Failed to generate meal plan: {error}")
@@ -520,24 +708,27 @@ elif st.session_state.stage == 'plan_view':
         
         st.divider()
         
-        # Action buttons
+        # Action buttons with better spacing and styling
+        st.markdown("---")
+        st.markdown("### 🎯 What's Next?")
+        
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            if st.button("🛒 Create Grocery List", type="secondary"):
+            if st.button("🛒 Create Grocery List", type="secondary", use_container_width=True):
                 # Generate grocery list and switch to grocery view
                 st.session_state.grocery_list = generate_grocery_list(st.session_state.meal_plan)
                 st.session_state.stage = 'grocery_list'
                 st.rerun()
         
         with col2:
-            if st.button("🔄 Generate New Plan"):
+            if st.button("🔄 Generate New Plan", use_container_width=True):
                 st.session_state.stage = 'generating'
                 st.session_state.meal_plan = None
                 st.session_state.grocery_list = None
                 st.rerun()
         
         with col3:
-            if st.button("← Back to Preferences"):
+            if st.button("⚙️ Change Preferences", use_container_width=True):
                 st.session_state.stage = 'onboarding'
                 st.rerun()
     
@@ -605,21 +796,24 @@ elif st.session_state.stage == 'grocery_list':
         total_items = sum(len(items) for items in st.session_state.grocery_list.values())
         st.info(f"📊 **Total Items:** {total_items} across {len(categories)} categories")
         
-        # Action buttons
+        # Action buttons with improved styling
+        st.markdown("---")
+        st.markdown("### 🎯 Ready to Shop?")
+        
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            if st.button("📋 Back to Meal Plan"):
+            if st.button("📋 Back to Meal Plan", use_container_width=True):
                 st.session_state.stage = 'plan_view'
                 st.rerun()
         
         with col2:
-            if st.button("🔄 Regenerate List"):
+            if st.button("🔄 Regenerate List", use_container_width=True):
                 # Regenerate grocery list from current meal plan
                 st.session_state.grocery_list = generate_grocery_list(st.session_state.meal_plan)
                 st.rerun()
         
         with col3:
-            if st.button("← Back to Preferences"):
+            if st.button("⚙️ Change Preferences", use_container_width=True):
                 st.session_state.stage = 'onboarding'
                 st.rerun()
     
@@ -635,7 +829,11 @@ with st.expander("🔧 API Connection Test (Development Only)"):
     st.markdown("### Testing LLM API Connection")
     
     provider = os.getenv("LLM_PROVIDER", "gemini")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini") if provider == "openai" else "gemini-pro"
+    # Use selected model from session state instead of environment variable
+    if provider == "openai":
+        model = st.session_state.get('selected_model', 'gpt-4o-mini')
+    else:
+        model = "gemini-pro"
     
     st.info(f"Current LLM provider: **{provider}**")
     if provider == "openai":
@@ -696,7 +894,8 @@ def test_gemini_api():
 def test_openai_api():
     """Test connection to OpenAI API"""
     api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    # Use selected model from session state
+    model = st.session_state.get('selected_model', 'gpt-4o-mini')
     
     if not api_key or api_key == "YOUR_OPENAI_API_KEY_HERE":
         return None, "Please add your OpenAI API key to .env file"
